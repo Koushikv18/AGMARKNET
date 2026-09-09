@@ -1,5 +1,5 @@
-"""
-acquire.py — Paginated data acquisition from data.gov.in AGMARKNET API.
+﻿"""
+acquire.py â€” Paginated data acquisition from data.gov.in AGMARKNET API.
 
 Usage:
     python src/acquire.py               # last 2 years (default)
@@ -32,16 +32,16 @@ from tqdm import tqdm
 
 from states import STATES
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 load_dotenv()
 
 API_KEY   = os.getenv("API_KEY", "579b464db66ec23bdd000001cdd3946e44ce4aeb0897d604edf11be")
 DATA_DIR  = Path(os.getenv("DATA_DIR", "data"))
 BASE_URL  = "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
-PAGE_SIZE = 10_000          # max records per API request
+PAGE_SIZE = 10_000          # max records per API request (API hard limit is 100k, 10k safer for stability)
 MAX_RETRIES = 6
-BACKOFF_BASE = 2            # seconds — doubles on each retry
+BACKOFF_BASE = 2            # seconds â€” doubles on each retry
 
 FULL_YEAR_RANGE  = range(2013, 2026)
 DEFAULT_YEAR_RANGE = range(datetime.now().year - 1, datetime.now().year + 1)
@@ -59,7 +59,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def make_request(params: dict, retries: int = MAX_RETRIES) -> dict:
     """GET with exponential back-off on rate-limit / server errors."""
@@ -70,15 +70,15 @@ def make_request(params: dict, retries: int = MAX_RETRIES) -> dict:
                 return resp.json()
             elif resp.status_code in (429, 500, 502, 503, 504):
                 wait = BACKOFF_BASE ** attempt
-                log.warning("HTTP %s — retrying in %ds (attempt %d/%d)",
+                log.warning("HTTP %s â€” retrying in %ds (attempt %d/%d)",
                             resp.status_code, wait, attempt + 1, retries)
                 time.sleep(wait)
             else:
-                log.error("HTTP %s — %s", resp.status_code, resp.text[:200])
+                log.error("HTTP %s â€” %s", resp.status_code, resp.text[:200])
                 resp.raise_for_status()
         except requests.RequestException as exc:
             wait = BACKOFF_BASE ** attempt
-            log.warning("Request error: %s — retrying in %ds", exc, wait)
+            log.warning("Request error: %s â€” retrying in %ds", exc, wait)
             time.sleep(wait)
     raise RuntimeError(f"Failed after {retries} retries for params={params}")
 
@@ -103,7 +103,7 @@ def records_to_csv_bytes(records: list[dict]) -> bytes:
     writer = csv.DictWriter(buf, fieldnames=FIELDS, extrasaction="ignore")
     writer.writeheader()
     for rec in records:
-        # Normalise key names — API may return camelCase or snake_case variants
+        # Normalise key names â€” API may return camelCase or snake_case variants
         row = {f: rec.get(f, rec.get(f.replace("_", ""), "")) for f in FIELDS}
         writer.writerow(row)
     return buf.getvalue().encode("utf-8")
@@ -120,7 +120,7 @@ def mark_done(year: int, state: str) -> None:
     sentinel.touch()
 
 
-# ── Core acquisition logic ────────────────────────────────────────────────────
+# â”€â”€ Core acquisition logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def pull_partition(state: str, year: int, dry_run: bool = False) -> int:
     """
@@ -150,9 +150,9 @@ def pull_partition(state: str, year: int, dry_run: bool = False) -> int:
 
         if dry_run:
             # Just print schema and first record, then exit
-            log.info("DRY RUN — fields in first record: %s",
+            log.info("DRY RUN â€” fields in first record: %s",
                      list(records[0].keys()))
-            log.info("DRY RUN — sample record: %s", json.dumps(records[0], indent=2))
+            log.info("DRY RUN â€” sample record: %s", json.dumps(records[0], indent=2))
             return count
 
         # Write chunk
@@ -177,7 +177,7 @@ def pull_partition(state: str, year: int, dry_run: bool = False) -> int:
     return total
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# â”€â”€ CLI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def parse_args():
     p = argparse.ArgumentParser(description="AGMARKNET data acquisition")
@@ -206,7 +206,7 @@ def main():
 
     log.info("=" * 60)
     log.info("AGMARKNET Acquisition")
-    log.info("  Years  : %s – %s", years[0], years[-1])
+    log.info("  Years  : %s â€“ %s", years[0], years[-1])
     log.info("  States : %d", len(states))
     log.info("  Output : %s", DATA_DIR / "raw")
     log.info("=" * 60)
@@ -221,7 +221,7 @@ def main():
                 n = pull_partition(state, year, dry_run=args.dry_run)
                 grand_total += n
                 if args.dry_run:
-                    log.info("Dry-run complete — exiting.")
+                    log.info("Dry-run complete â€” exiting.")
                     sys.exit(0)
             except Exception as exc:
                 log.error("FAILED  state=%s year=%d : %s", state, year, exc)
@@ -232,3 +232,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

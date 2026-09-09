@@ -106,3 +106,11 @@ start dashboard/index.html
 
 Data: Open Government Data (OGD) Platform India — data.gov.in
 Code: MIT
+
+## Badges
+
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python)
+![PySpark](https://img.shields.io/badge/PySpark-3.5-orange?logo=apache-spark)
+![Plotly](https://img.shields.io/badge/Plotly-5.18-purple?logo=plotly)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Data](https://img.shields.io/badge/Data-data.gov.in-blue)

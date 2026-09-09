@@ -1,0 +1,1107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AGMARKNET — India Mandi Price Intelligence Dashboard</title>
+  <meta name="description"
+        content="Full-scale analytics dashboard on India's AGMARKNET mandi price data —
+                 covering 7,000+ mandis, 300+ commodities, daily records since 2013.
+                 Price trends, volatility, arbitrage signals, and state-level heatmaps." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet" />
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" defer></script>
+  <style>
+    /* ── Reset & Tokens ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0D1117;
+      --surface:   #161B22;
+      --surface2:  #1C2333;
+      --border:    rgba(255,255,255,0.08);
+      --primary:   #00D4AA;
+      --secondary: #FF6B6B;
+      --accent:    #FFD93D;
+      --purple:    #B56AFF;
+      --blue:      #58A6FF;
+      --text:      #E6EDF3;
+      --muted:     #8B949E;
+      --radius:    12px;
+      --shadow:    0 4px 32px rgba(0,0,0,0.5);
+      --glow-g:    0 0 40px rgba(0,212,170,0.15);
+      --glow-r:    0 0 40px rgba(255,107,107,0.15);
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* ── Scrollbar ───────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Header ──────────────────────────────────────────────────── */
+    header {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(13,17,23,0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      display: flex; align-items: center; gap: 1.5rem;
+      height: 64px;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 0.75rem;
+      font-weight: 700; font-size: 1.1rem; color: var(--text);
+      text-decoration: none; white-space: nowrap;
+    }
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--primary), var(--blue));
+      border-radius: 8px;
+      display: grid; place-items: center;
+      font-size: 1.2rem;
+    }
+    .logo-sub { font-size: 0.7rem; color: var(--muted); font-weight: 400; }
+
+    nav { display: flex; gap: 0.25rem; flex: 1; overflow-x: auto; }
+    nav::-webkit-scrollbar { height: 0; }
+    .nav-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--muted); font-family: inherit; font-size: 0.85rem;
+      padding: 0.45rem 1rem; border-radius: 8px;
+      white-space: nowrap; transition: all 0.2s;
+    }
+    .nav-btn:hover { background: var(--surface); color: var(--text); }
+    .nav-btn.active {
+      background: rgba(0,212,170,0.12);
+      color: var(--primary); font-weight: 600;
+    }
+
+    .header-badge {
+      display: flex; align-items: center; gap: 0.5rem;
+      background: rgba(0,212,170,0.1);
+      border: 1px solid rgba(0,212,170,0.25);
+      border-radius: 20px; padding: 0.3rem 0.9rem;
+      font-size: 0.75rem; color: var(--primary);
+      white-space: nowrap;
+    }
+    .pulse {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--primary);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,212,170,0.4); }
+      50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(0,212,170,0); }
+    }
+
+    /* ── Hero ────────────────────────────────────────────────────── */
+    .hero {
+      background: linear-gradient(135deg, #0D1117 0%, #0F1F2E 50%, #0D1117 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 3rem 2rem 2.5rem;
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; top: -50%; left: -10%;
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(0,212,170,0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero::after {
+      content: '';
+      position: absolute; bottom: -30%; right: -5%;
+      width: 400px; height: 400px;
+      background: radial-gradient(circle, rgba(88,166,255,0.05) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-content { position: relative; max-width: 900px; }
+    .hero-eyebrow {
+      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em;
+      color: var(--primary); text-transform: uppercase; margin-bottom: 0.75rem;
+    }
+    .hero h1 {
+      font-size: clamp(1.8rem, 4vw, 2.8rem); font-weight: 800;
+      line-height: 1.15; margin-bottom: 1rem;
+      background: linear-gradient(135deg, var(--text) 0%, var(--blue) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero-sub {
+      color: var(--muted); font-size: 1rem; max-width: 650px;
+      margin-bottom: 2rem;
+    }
+
+    /* ── KPI Cards ───────────────────────────────────────────────── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+    }
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      position: relative; overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .kpi-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+    .kpi-card::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+    .kpi-card.green::before  { background: linear-gradient(90deg, var(--primary), var(--blue)); }
+    .kpi-card.red::before    { background: linear-gradient(90deg, var(--secondary), var(--accent)); }
+    .kpi-card.purple::before { background: linear-gradient(90deg, var(--purple), var(--secondary)); }
+    .kpi-card.blue::before   { background: linear-gradient(90deg, var(--blue), var(--primary)); }
+    .kpi-card.yellow::before { background: linear-gradient(90deg, var(--accent), var(--secondary)); }
+
+    .kpi-label {
+      font-size: 0.72rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.08em; margin-bottom: 0.5rem; font-weight: 500;
+    }
+    .kpi-value {
+      font-size: 1.75rem; font-weight: 700; line-height: 1;
+      margin-bottom: 0.25rem;
+    }
+    .kpi-card.green  .kpi-value { color: var(--primary); }
+    .kpi-card.red    .kpi-value { color: var(--secondary); }
+    .kpi-card.purple .kpi-value { color: var(--purple); }
+    .kpi-card.blue   .kpi-value { color: var(--blue); }
+    .kpi-card.yellow .kpi-value { color: var(--accent); }
+
+    .kpi-change {
+      font-size: 0.75rem; color: var(--muted);
+    }
+    .kpi-icon {
+      position: absolute; right: 1rem; top: 1.25rem;
+      font-size: 1.8rem; opacity: 0.12;
+    }
+
+    /* ── Main content ────────────────────────────────────────────── */
+    main { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+
+    /* ── Tab panels ──────────────────────────────────────────────── */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Section headings ────────────────────────────────────────── */
+    .section-header {
+      display: flex; align-items: flex-start; gap: 1rem;
+      margin-bottom: 1.5rem; padding-top: 0.5rem;
+    }
+    .section-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      display: grid; place-items: center; font-size: 1.2rem;
+      flex-shrink: 0;
+    }
+    .section-icon.green  { background: rgba(0,212,170,0.12); }
+    .section-icon.red    { background: rgba(255,107,107,0.12); }
+    .section-icon.purple { background: rgba(181,106,255,0.12); }
+    .section-icon.blue   { background: rgba(88,166,255,0.12); }
+    .section-icon.yellow { background: rgba(255,217,61,0.12); }
+
+    .section-title { font-size: 1.15rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .section-desc  { font-size: 0.85rem; color: var(--muted); }
+
+    /* ── Chart cards ─────────────────────────────────────────────── */
+    .chart-grid { display: grid; gap: 1.5rem; }
+    .chart-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+    @media (max-width: 900px) { .chart-grid.cols-2 { grid-template-columns: 1fr; } }
+
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: box-shadow 0.2s;
+    }
+    .chart-card:hover { box-shadow: var(--shadow); }
+
+    .chart-card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1.25rem 1.5rem 0;
+    }
+    .chart-card-title { font-size: 0.95rem; font-weight: 600; }
+    .chart-card-tag {
+      font-size: 0.7rem; padding: 0.25rem 0.6rem; border-radius: 20px;
+      font-weight: 500;
+    }
+    .tag-green  { background: rgba(0,212,170,0.12);  color: var(--primary); }
+    .tag-red    { background: rgba(255,107,107,0.12); color: var(--secondary); }
+    .tag-purple { background: rgba(181,106,255,0.12); color: var(--purple); }
+    .tag-blue   { background: rgba(88,166,255,0.12);  color: var(--blue); }
+    .tag-yellow { background: rgba(255,217,61,0.12);  color: var(--accent); }
+
+    .chart-card-desc { padding: 0.3rem 1.5rem 0; font-size: 0.8rem; color: var(--muted); }
+    .chart-iframe-wrap { padding: 0; height: 420px; }
+    .chart-iframe-wrap iframe {
+      width: 100%; height: 100%; border: none; display: block;
+      background: transparent;
+    }
+    .chart-placeholder {
+      height: 420px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 1rem; color: var(--muted);
+    }
+    .chart-placeholder .ph-icon { font-size: 3rem; opacity: 0.3; }
+    .chart-placeholder p { font-size: 0.85rem; text-align: center; max-width: 280px; }
+
+    /* ── Insight cards ───────────────────────────────────────────── */
+    .insight-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem; margin-top: 1.5rem;
+    }
+    .insight-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+    }
+    .insight-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .insight-card p  { font-size: 0.8rem; color: var(--muted); line-height: 1.6; }
+    .insight-card .tag { display: inline-block; margin-bottom: 0.5rem; }
+
+    /* ── Pipeline steps ──────────────────────────────────────────── */
+    .pipeline {
+      display: flex; gap: 0; overflow-x: auto;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .pipeline::-webkit-scrollbar { height: 4px; }
+    .pipeline-step {
+      flex: 1; min-width: 140px;
+      padding: 1.25rem 1rem; text-align: center;
+      border-right: 1px solid var(--border);
+      position: relative;
+      transition: background 0.2s;
+    }
+    .pipeline-step:last-child { border-right: none; }
+    .pipeline-step:hover { background: var(--surface2); }
+    .pipeline-step .step-num {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: rgba(0,212,170,0.12); color: var(--primary);
+      font-size: 0.75rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 0.5rem;
+    }
+    .pipeline-step .step-icon { font-size: 1.5rem; margin-bottom: 0.4rem; }
+    .pipeline-step .step-title { font-size: 0.8rem; font-weight: 600; }
+    .pipeline-step .step-sub   { font-size: 0.7rem; color: var(--muted); margin-top: 0.25rem; }
+    .pipeline-arrow {
+      position: absolute; right: -8px; top: 50%;
+      transform: translateY(-50%);
+      color: var(--primary); font-size: 0.9rem; z-index: 1;
+    }
+
+    /* ── Table ───────────────────────────────────────────────────── */
+    .data-table-wrap { overflow-x: auto; border-radius: var(--radius); }
+    table {
+      width: 100%; border-collapse: collapse;
+      font-size: 0.83rem;
+    }
+    thead tr { background: var(--surface2); }
+    th {
+      padding: 0.75rem 1rem; text-align: left;
+      font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 0.7rem 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    tbody tr:hover { background: rgba(255,255,255,0.02); }
+    .badge {
+      display: inline-block; padding: 0.2rem 0.55rem;
+      border-radius: 20px; font-size: 0.7rem; font-weight: 600;
+    }
+    .badge-high   { background: rgba(255,107,107,0.15); color: var(--secondary); }
+    .badge-medium { background: rgba(255,217,61,0.15);  color: var(--accent); }
+    .badge-low    { background: rgba(0,212,170,0.15);   color: var(--primary); }
+
+    /* ── Footer ──────────────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      padding: 2rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin-top: 4rem;
+    }
+    footer a { color: var(--blue); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ── Animations ──────────────────────────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-up { animation: fadeUp 0.5s ease both; }
+    .fade-up-1 { animation-delay: 0.05s; }
+    .fade-up-2 { animation-delay: 0.1s; }
+    .fade-up-3 { animation-delay: 0.15s; }
+    .fade-up-4 { animation-delay: 0.2s; }
+    .fade-up-5 { animation-delay: 0.25s; }
+
+    /* ── Plotly embed theme override ─────────────────────────────── */
+    .js-plotly-plot .plotly .main-svg { background: transparent !important; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <a class="logo" href="#">
+    <div class="logo-icon">🌾</div>
+    <div>
+      AGMARKNET
+      <div class="logo-sub">Mandi Price Intelligence</div>
+    </div>
+  </a>
+
+  <nav id="nav">
+    <button class="nav-btn active" data-tab="overview"   onclick="switchTab('overview',   this)">Overview</button>
+    <button class="nav-btn"        data-tab="trends"     onclick="switchTab('trends',     this)">Price Trends</button>
+    <button class="nav-btn"        data-tab="commodities" onclick="switchTab('commodities', this)">Commodities</button>
+    <button class="nav-btn"        data-tab="geography"  onclick="switchTab('geography',  this)">Geography</button>
+    <button class="nav-btn"        data-tab="social"     onclick="switchTab('social',     this)">Social Impact</button>
+    <button class="nav-btn"        data-tab="pipeline"   onclick="switchTab('pipeline',   this)">Pipeline</button>
+  </nav>
+
+  <div class="header-badge">
+    <div class="pulse"></div>
+    Live Data
+  </div>
+</header>
+
+<!-- ── Hero ── -->
+<div class="hero">
+  <div class="hero-content">
+    <p class="hero-eyebrow">Ministry of Agriculture &amp; Farmers Welfare · Govt. of India</p>
+    <h1>India Mandi Price Intelligence<br/>at Scale</h1>
+    <p class="hero-sub">
+      Full-history AGMARKNET pipeline covering 7,000+ mandis, 300+ commodities,
+      and daily price records since 2013 — powered by PySpark, Spark SQL, and
+      Plotly. Tens of millions of rows. No Kaggle subset.
+    </p>
+
+    <!-- KPI Cards -->
+    <div class="kpi-grid">
+      <div class="kpi-card green fade-up fade-up-1">
+        <div class="kpi-icon">🏪</div>
+        <div class="kpi-label">Mandis Covered</div>
+        <div class="kpi-value">7,000+</div>
+        <div class="kpi-change">across all 28 states &amp; 8 UTs</div>
+      </div>
+      <div class="kpi-card blue fade-up fade-up-2">
+        <div class="kpi-icon">🌾</div>
+        <div class="kpi-label">Commodities</div>
+        <div class="kpi-value">300+</div>
+        <div class="kpi-change">cereals, pulses, vegetables, fruits, spices</div>
+      </div>
+      <div class="kpi-card purple fade-up fade-up-3">
+        <div class="kpi-icon">📅</div>
+        <div class="kpi-label">Data Since</div>
+        <div class="kpi-value">2013</div>
+        <div class="kpi-change">daily records, 12+ years of history</div>
+      </div>
+      <div class="kpi-card yellow fade-up fade-up-4">
+        <div class="kpi-icon">📦</div>
+        <div class="kpi-label">Dataset Size</div>
+        <div class="kpi-value">&gt;1 GB</div>
+        <div class="kpi-change">tens of millions of rows · multi-GB Parquet</div>
+      </div>
+      <div class="kpi-card red fade-up fade-up-5">
+        <div class="kpi-icon">⚡</div>
+        <div class="kpi-label">Processing</div>
+        <div class="kpi-value">Spark</div>
+        <div class="kpi-change">PySpark · Spark SQL · HDFS / local Parquet</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main ── -->
+<main>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!--  TAB: Overview                                              -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div class="tab-panel active" id="tab-overview">
+
+    <div class="section-header" style="margin-top:1.5rem">
+      <div class="section-icon green">📊</div>
+      <div>
+        <div class="section-title">Dashboard Overview</div>
+        <div class="section-desc">
+          Quick summary of all analytics produced by this pipeline.
+          Use the tabs above to navigate to each analysis.
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-grid cols-2">
+
+      <!-- Price Trend preview -->
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">National Monthly Price Trend</div>
+          <span class="chart-card-tag tag-green">Last 12 months</span>
+        </div>
+        <div class="chart-card-desc">Avg modal price (₹/quintal) across all commodities</div>
+        <div class="chart-iframe-wrap" id="overview-trend-wrap">
+          <div class="chart-placeholder">
+            <div class="ph-icon">📈</div>
+            <p>Chart renders after running <code>visualize.py</code>.<br/>
+               See <strong>Price Trends</strong> tab for the live chart.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top Commodities preview -->
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">Top Commodities by Volume</div>
+          <span class="chart-card-tag tag-blue">All years</span>
+        </div>
+        <div class="chart-card-desc">Record count = proxy for trading activity</div>
+        <div class="chart-iframe-wrap" id="overview-comm-wrap">
+          <div class="chart-placeholder">
+            <div class="ph-icon">📊</div>
+            <p>Chart renders after running <code>visualize.py</code>.<br/>
+               See <strong>Commodities</strong> tab.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Analytics summary table -->
+    <div style="margin-top:2rem">
+      <div class="section-header">
+        <div class="section-icon blue">🧾</div>
+        <div>
+          <div class="section-title">Analytics Produced</div>
+          <div class="section-desc">7 Spark SQL queries → result CSVs → Plotly charts</div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="data-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Query</th>
+                <th>Output File</th>
+                <th>Chart Type</th>
+                <th>Social Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td>Top 10 commodities by record count</td>
+                <td><code>results/top_commodities.csv</code></td>
+                <td>Horizontal bar</td>
+                <td>Market coverage</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>National monthly avg modal price (last 12 m)</td>
+                <td><code>results/monthly_price_trend.csv</code></td>
+                <td>Line chart</td>
+                <td>Inflation tracking</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td>Monthly price per top-10 commodity</td>
+                <td><code>results/monthly_price_by_commodity.csv</code></td>
+                <td>Multi-line</td>
+                <td>Commodity seasonality</td>
+              </tr>
+              <tr>
+                <td>4</td>
+                <td>Top 5 states by total trade value</td>
+                <td><code>results/top_states.csv</code></td>
+                <td>Bar chart</td>
+                <td>Agricultural economy</td>
+              </tr>
+              <tr>
+                <td>5</td>
+                <td>Price volatility (σ of modal price)</td>
+                <td><code>results/price_volatility.csv</code></td>
+                <td>Horizontal bar (CV%)</td>
+                <td>Farmer income risk</td>
+              </tr>
+              <tr>
+                <td>6</td>
+                <td>Market inefficiency (max−min spread)</td>
+                <td><code>results/market_inefficiency.csv</code></td>
+                <td>Scatter</td>
+                <td>Market reform targeting</td>
+              </tr>
+              <tr>
+                <td>7</td>
+                <td>Arbitrage signal: state vs national avg</td>
+                <td><code>results/arbitrage_signal.csv</code></td>
+                <td>Heatmap</td>
+                <td>Price exploitation detection</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /tab-overview -->
+
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!--  TAB: Price Trends                                          -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div class="tab-panel" id="tab-trends">
+
+    <div class="section-header" style="margin-top:1.5rem">
+      <div class="section-icon green">📈</div>
+      <div>
+        <div class="section-title">Price Trends</div>
+        <div class="section-desc">
+          National monthly average modal prices — overall and per top commodity.
+          Useful for identifying seasonal patterns, inflation shocks, and drought effects.
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">National Monthly Average Modal Price</div>
+          <span class="chart-card-tag tag-green">Last 12 months</span>
+        </div>
+        <div class="chart-card-desc">All commodities · ₹/quintal · source: <code>results/monthly_price_trend.csv</code></div>
+        <div class="chart-iframe-wrap">
+          <iframe id="iframe-price-trend" src="output/price_trend.html" loading="lazy"
+                  title="National monthly price trend" onerror="showFallback(this)"></iframe>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">Monthly Price per Commodity (Top 10)</div>
+          <span class="chart-card-tag tag-blue">Last 12 months</span>
+        </div>
+        <div class="chart-card-desc">
+          Average modal price by commodity — reveals seasonal spikes and divergence.
+        </div>
+        <div class="chart-iframe-wrap">
+          <div class="chart-placeholder">
+            <div class="ph-icon">📊</div>
+            <p>Run <code>python src/analyze.py</code> and <code>python src/visualize.py</code>
+               to generate this chart.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="insight-grid">
+      <div class="insight-card">
+        <span class="badge badge-high tag">Seasonal Pattern</span>
+        <h4>Kharif / Rabi Price Cycles</h4>
+        <p>Prices typically fall at harvest (Oct–Jan for Kharif, Mar–May for Rabi)
+           and spike in lean months. The trend line exposes whether this cycle is
+           amplifying over years.</p>
+      </div>
+      <div class="insight-card">
+        <span class="badge badge-medium tag">Inflation Signal</span>
+        <h4>Multi-Year Price Drift</h4>
+        <p>Plotting 2013–2025 reveals the compounded inflation in agricultural
+           commodities — critical context for MSP adequacy analysis.</p>
+      </div>
+      <div class="insight-card">
+        <span class="badge badge-low tag">Drought Impact</span>
+        <h4>Shock Detection</h4>
+        <p>Sudden price spikes (>2σ from rolling mean) in specific months
+           correspond to drought years, floods, or supply chain disruptions
+           (e.g. COVID-19, 2020).</p>
+      </div>
+    </div>
+
+  </div><!-- /tab-trends -->
+
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!--  TAB: Commodities                                           -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div class="tab-panel" id="tab-commodities">
+
+    <div class="section-header" style="margin-top:1.5rem">
+      <div class="section-icon blue">🌽</div>
+      <div>
+        <div class="section-title">Commodity Analytics</div>
+        <div class="section-desc">
+          Trading volume ranking and price volatility across all 300+ commodities.
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-grid cols-2">
+
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">Top 10 Commodities by Volume</div>
+          <span class="chart-card-tag tag-blue">All years</span>
+        </div>
+        <div class="chart-card-desc">Colour intensity = average modal price</div>
+        <div class="chart-iframe-wrap">
+          <iframe id="iframe-top-commodities" src="output/top_commodities.html" loading="lazy"
+                  title="Top 10 commodities by volume" onerror="showFallback(this)"></iframe>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">Price Volatility by Commodity</div>
+          <span class="chart-card-tag tag-red">Coefficient of Variation</span>
+        </div>
+        <div class="chart-card-desc">CV% = σ / μ × 100 · higher = riskier for farmers</div>
+        <div class="chart-iframe-wrap">
+          <iframe id="iframe-volatility" src="output/volatility.html" loading="lazy"
+                  title="Price volatility by commodity" onerror="showFallback(this)"></iframe>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="insight-grid">
+      <div class="insight-card">
+        <span class="badge badge-high tag">High Impact</span>
+        <h4>Vegetables &amp; Perishables</h4>
+        <p>Onion, tomato, and potato typically appear in both the top-volume
+           list and the highest-volatility list — supply shocks translate
+           directly into consumer price inflation.</p>
+      </div>
+      <div class="insight-card">
+        <span class="badge badge-medium tag">Policy Lever</span>
+        <h4>MSP Commodities</h4>
+        <p>Rice, wheat, and major pulses (tur/dal, moong) are MSP-supported.
+           Tracking whether their modal price stays above MSP is a direct
+           policy audit metric.</p>
+      </div>
+      <div class="insight-card">
+        <span class="badge badge-low tag">Stable</span>
+        <h4>Spices &amp; Cash Crops</h4>
+        <p>Turmeric, chilli, and cotton typically show lower relative volatility
+           but much higher absolute prices — important for export income tracking.</p>
+      </div>
+    </div>
+
+  </div><!-- /tab-commodities -->
+
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!--  TAB: Geography                                             -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div class="tab-panel" id="tab-geography">
+
+    <div class="section-header" style="margin-top:1.5rem">
+      <div class="section-icon purple">🗺️</div>
+      <div>
+        <div class="section-title">Geographic Analysis</div>
+        <div class="section-desc">
+          State-level choropleth of average prices and top-state trade activity.
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">India State-Level Choropleth — Avg Modal Price</div>
+          <span class="chart-card-tag tag-purple">GeoJSON + Plotly</span>
+        </div>
+        <div class="chart-card-desc">
+          State colour intensity reflects average modal price across all commodities.
+          Generated from <code>results/top_states.csv</code> + <code>data/india_states.geojson</code>
+        </div>
+        <div class="chart-iframe-wrap">
+          <iframe id="iframe-choropleth" src="output/choropleth.html" loading="lazy"
+                  title="India state choropleth" onerror="showFallback(this)"></iframe>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">Top 5 States by Trade Activity</div>
+          <span class="chart-card-tag tag-blue">Markets &amp; Trade Value</span>
+        </div>
+        <div class="chart-card-desc">
+          Total price sum (proxy for trade value) · unique markets · unique commodities
+        </div>
+        <div class="chart-iframe-wrap">
+          <iframe id="iframe-top-states" src="output/top_states.html" loading="lazy"
+                  title="Top 5 states by trade value" onerror="showFallback(this)"></iframe>
+        </div>
+      </div>
+
+    </div>
+
+  </div><!-- /tab-geography -->
+
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!--  TAB: Social Impact                                         -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div class="tab-panel" id="tab-social">
+
+    <div class="section-header" style="margin-top:1.5rem">
+      <div class="section-icon red">⚖️</div>
+      <div>
+        <div class="section-title">Social Impact Analytics</div>
+        <div class="section-desc">
+          Market inefficiency, price spread as a proxy for exploitation, and
+          the arbitrage / price-gouging detection signal.
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-grid cols-2">
+
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">Market Inefficiency — Price Spread</div>
+          <span class="chart-card-tag tag-red">Exploitation Proxy</span>
+        </div>
+        <div class="chart-card-desc">
+          High spread % (max−min / modal) indicates wider intra-day price dispersion —
+          a proxy for opaque, inefficient markets where farmers may be underpaid.
+        </div>
+        <div class="chart-iframe-wrap">
+          <iframe id="iframe-market-ineff" src="output/market_inefficiency.html" loading="lazy"
+                  title="Market inefficiency scatter" onerror="showFallback(this)"></iframe>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <div class="chart-card-title">Arbitrage Signal — State vs National Avg</div>
+          <span class="chart-card-tag tag-yellow">Price Gouging Detection</span>
+        </div>
+        <div class="chart-card-desc">
+          Red cells = states charging significantly above the national average for the
+          same commodity on the same day. Persistent red = structural price exploitation.
+        </div>
+        <div class="chart-iframe-wrap">
+          <iframe id="iframe-arbitrage" src="output/arbitrage.html" loading="lazy"
+                  title="Arbitrage signal heatmap" onerror="showFallback(this)"></iframe>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="insight-grid">
+      <div class="insight-card">
+        <span class="badge badge-high tag">MSP Violation</span>
+        <h4>Below-MSP Price Detection</h4>
+        <p>When modal_price falls below the declared MSP for a commodity, it signals
+           either data quality issues or genuine MSP violations — both actionable for
+           policy enforcement. This pipeline can be extended to flag these rows directly.</p>
+      </div>
+      <div class="insight-card">
+        <span class="badge badge-high tag">Price Gouging</span>
+        <h4>Cross-State Arbitrage</h4>
+        <p>When the same commodity (same date, same grade) trades at >30% above the
+           national average in a specific state, it suggests supply bottlenecks, cartelisation,
+           or poor inter-state market integration — all targets for APMC reform.</p>
+      </div>
+      <div class="insight-card">
+        <span class="badge badge-medium tag">Farmer Welfare</span>
+        <h4>Income Risk Index</h4>
+        <p>High price volatility (CV%) directly translates into income uncertainty
+           for farmers. Commodities with CV &gt; 40% are candidates for derivative
+           instruments or government price stabilisation schemes.</p>
+      </div>
+    </div>
+
+  </div><!-- /tab-social -->
+
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!--  TAB: Pipeline                                              -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <div class="tab-panel" id="tab-pipeline">
+
+    <div class="section-header" style="margin-top:1.5rem">
+      <div class="section-icon yellow">⚙️</div>
+      <div>
+        <div class="section-title">Pipeline Architecture</div>
+        <div class="section-desc">
+          End-to-end data engineering pipeline — from API to interactive dashboard.
+        </div>
+      </div>
+    </div>
+
+    <!-- Pipeline visual -->
+    <div class="chart-card" style="margin-bottom:1.5rem">
+      <div style="padding:1.5rem">
+        <div class="pipeline">
+          <div class="pipeline-step">
+            <div class="step-num">1</div>
+            <div class="step-icon">🌐</div>
+            <div class="step-title">Acquire</div>
+            <div class="step-sub">data.gov.in REST API<br/>paginated · resumable</div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-num">2</div>
+            <div class="step-icon">💾</div>
+            <div class="step-title">Store</div>
+            <div class="step-sub">Local CSV<br/>year + state partitions</div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-num">3</div>
+            <div class="step-icon">🐘</div>
+            <div class="step-title">HDFS</div>
+            <div class="step-sub">hdfs dfs -put<br/>raw layer</div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-num">4</div>
+            <div class="step-icon">⚡</div>
+            <div class="step-title">Process</div>
+            <div class="step-sub">PySpark clean<br/>→ Parquet</div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-num">5</div>
+            <div class="step-icon">🔍</div>
+            <div class="step-title">Analyze</div>
+            <div class="step-sub">Spark SQL<br/>7 queries → CSV</div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-num">6</div>
+            <div class="step-icon">📊</div>
+            <div class="step-title">Visualize</div>
+            <div class="step-sub">Plotly charts<br/>HTML outputs</div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-num">7</div>
+            <div class="step-icon">🖥️</div>
+            <div class="step-title">Dashboard</div>
+            <div class="step-sub">Standalone HTML<br/>offline-ready</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Run commands table -->
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="chart-card-title">Run Commands</div>
+        <span class="chart-card-tag tag-green">Quick Reference</span>
+      </div>
+      <div class="data-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>Command</th>
+              <th>Mode</th>
+              <th>Est. Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Install deps</td>
+              <td><code>pip install -r requirements.txt</code></td>
+              <td>—</td>
+              <td>2–5 min</td>
+            </tr>
+            <tr>
+              <td>Configure</td>
+              <td><code>cp .env.example .env</code> then edit</td>
+              <td>—</td>
+              <td>1 min</td>
+            </tr>
+            <tr>
+              <td>Acquire (test)</td>
+              <td><code>python src/acquire.py --dry-run</code></td>
+              <td>Dry run</td>
+              <td>~5 s</td>
+            </tr>
+            <tr>
+              <td>Acquire (2 yr)</td>
+              <td><code>python src/acquire.py</code></td>
+              <td>Default</td>
+              <td>30–60 min</td>
+            </tr>
+            <tr>
+              <td>Acquire (full)</td>
+              <td><code>python src/acquire.py --full</code></td>
+              <td>Full history</td>
+              <td>Hours</td>
+            </tr>
+            <tr>
+              <td>HDFS ingest</td>
+              <td><code>bash scripts/hdfs_ingest.sh</code></td>
+              <td>Optional</td>
+              <td>5–30 min</td>
+            </tr>
+            <tr>
+              <td>Process (test)</td>
+              <td><code>python src/process.py --sample</code></td>
+              <td>10k rows</td>
+              <td>&lt;1 min</td>
+            </tr>
+            <tr>
+              <td>Process (full)</td>
+              <td><code>python src/process.py</code></td>
+              <td>All data</td>
+              <td>15–60 min</td>
+            </tr>
+            <tr>
+              <td>Analyze</td>
+              <td><code>python src/analyze.py</code></td>
+              <td>All queries</td>
+              <td>5–20 min</td>
+            </tr>
+            <tr>
+              <td>Visualize</td>
+              <td><code>python src/visualize.py</code></td>
+              <td>Charts</td>
+              <td>1–2 min</td>
+            </tr>
+            <tr>
+              <td>Dashboard</td>
+              <td><code>start dashboard/index.html</code></td>
+              <td>Browser</td>
+              <td>Instant</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="insight-grid">
+      <div class="insight-card">
+        <span class="badge badge-low tag">Local Mode</span>
+        <h4>No Cluster Required</h4>
+        <p>Set <code>USE_HDFS=false</code> and <code>SPARK_MASTER=local[*]</code>
+           in <code>.env</code> to run the entire pipeline on a laptop.
+           PySpark will use all CPU cores.</p>
+      </div>
+      <div class="insight-card">
+        <span class="badge badge-medium tag">YARN / Cluster</span>
+        <h4>Scale Out</h4>
+        <p>Set <code>SPARK_MASTER=yarn</code>, <code>USE_HDFS=true</code>, and
+           <code>HDFS_NAMENODE=hdfs://&lt;host&gt;:9000</code> for a full cluster run.
+           The HDFS ingestion script handles the upload.</p>
+      </div>
+      <div class="insight-card">
+        <span class="badge badge-high tag">API Rate Limits</span>
+        <h4>Full Pull Strategy</h4>
+        <p>With the demo API key, a full 2013–2025 pull may take 24+ hours due
+           to rate limiting. Register a free key at data.gov.in for ~10× higher
+           limits. The script resumes automatically on restart.</p>
+      </div>
+    </div>
+
+  </div><!-- /tab-pipeline -->
+
+</main>
+
+<!-- ── Footer ── -->
+<footer>
+  <p>
+    Data source: <a href="https://data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
+       target="_blank" rel="noopener">AGMARKNET on data.gov.in</a> ·
+    Ministry of Agriculture &amp; Farmers Welfare, Govt. of India ·
+    Open Government Data (OGD) Platform
+  </p>
+  <p style="margin-top:0.5rem; color:#555">
+    Pipeline built with PySpark · Spark SQL · Plotly · HDFS
+  </p>
+</footer>
+
+<script>
+// ── Tab switching ──────────────────────────────────────────────────────────
+function switchTab(tabId, btn) {
+  // Hide all panels
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  // Show target
+  document.getElementById('tab-' + tabId).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ── Iframe fallback on load error ─────────────────────────────────────────
+function showFallback(iframe) {
+  const wrap = iframe.closest('.chart-iframe-wrap');
+  if (!wrap) return;
+  const filename = iframe.src.split('/').pop();
+  wrap.innerHTML = `
+    <div class="chart-placeholder">
+      <div class="ph-icon">⚙️</div>
+      <p>Chart not yet generated.<br/>
+         Run <code>python src/visualize.py</code> to create
+         <strong>${filename}</strong>.</p>
+    </div>`;
+}
+
+// ── Check for local output files and update placeholders ──────────────────
+// When served locally, iframes may fail silently; attempt to detect.
+document.querySelectorAll('iframe[id^="iframe-"]').forEach(iframe => {
+  iframe.addEventListener('load', () => {
+    try {
+      // If we can access contentDocument, the file loaded fine
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+      if (!doc || doc.title === '' || doc.body.innerHTML.trim() === '') {
+        showFallback(iframe);
+      }
+    } catch(e) {
+      // Cross-origin or file:// access blocked — assume OK
+    }
+  });
+  // Timeout fallback if iframe never fires load (file missing)
+  setTimeout(() => {
+    try {
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+      if (!doc || doc.body.innerHTML.length < 100) {
+        showFallback(iframe);
+      }
+    } catch(e) { /* cross-origin, assume loaded */ }
+  }, 3000);
+});
+
+// ── Animate KPI counter numbers ───────────────────────────────────────────
+function animateValue(el, start, end, duration, suffix) {
+  const startTime = performance.now();
+  function update(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const ease = 1 - Math.pow(1 - progress, 3);
+    const value = Math.round(start + (end - start) * ease);
+    el.textContent = value.toLocaleString() + suffix;
+    if (progress < 1) requestAnimationFrame(update);
+  }
+  requestAnimationFrame(update);
+}
+// Note: KPI values are text strings, not numbers — skip animation for now.
+// This hook is here for when real data replaces the static strings.
+</script>
+
+</body>
+</html>

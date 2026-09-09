@@ -1,12 +1,25 @@
-requests>=2.31.0
-tqdm>=4.66.0
-python-dotenv>=1.0.0
-pyspark>=3.5.0
-pandas>=2.1.0
-pyarrow>=14.0.0
-matplotlib>=3.8.0
-plotly>=5.18.0
-kaleido>=0.2.1
-geopandas>=0.14.0
-shapely>=2.0.0
-numpy>=1.26.0
+﻿# AGMARKNET Pipeline — Python Dependencies
+# Pin versions for reproducibility on production cluster deployments.
+# Run: pip install -r requirements.txt
+
+# --- Data acquisition ---
+requests>=2.31.0          # HTTP client for data.gov.in API
+tqdm>=4.66.0              # Progress bars for paginated pulls
+python-dotenv>=1.0.0      # Load .env config
+
+# --- Big data processing ---
+pyspark>=3.5.0            # Apache Spark Python API
+pyarrow>=14.0.0           # Parquet read/write backend
+
+# --- Analytics & data wrangling ---
+pandas>=2.1.0             # Result CSV manipulation
+numpy>=1.26.0             # Numerical operations
+
+# --- Visualisation ---
+plotly>=5.18.0            # Interactive charts (HTML output)
+kaleido>=0.2.1            # Static image export from Plotly
+matplotlib>=3.8.0         # Fallback static charts
+
+# --- Geographic visualisation ---
+geopandas>=0.14.0         # India state choropleth
+shapely>=2.0.0            # Geometry operations (GeoJSON)

@@ -1,14 +1,14 @@
-"""
-analyze.py — Spark SQL analytics on the cleaned AGMARKNET Parquet dataset.
+﻿"""
+analyze.py â€” Spark SQL analytics on the cleaned AGMARKNET Parquet dataset.
 
 Produces 7 result CSV files in results/:
-  1. top_commodities.csv         — top 10 by record count
-  2. monthly_price_trend.csv     — national monthly avg modal price (last 12 m)
-  3. monthly_price_by_commodity.csv — monthly avg per top-10 commodity
-  4. top_states.csv              — top 5 states by total estimated trade value
-  5. price_volatility.csv        — stddev of modal price per commodity
-  6. market_inefficiency.csv     — avg price spread (max-min) per market
-  7. arbitrage_signal.csv        — state deviation from national avg per day
+  1. top_commodities.csv         â€” top 10 by record count
+  2. monthly_price_trend.csv     â€” national monthly avg modal price (last 12 m)
+  3. monthly_price_by_commodity.csv â€” monthly avg per top-10 commodity
+  4. top_states.csv              â€” top 5 states by total estimated trade value
+  5. price_volatility.csv        â€” stddev of modal price per commodity
+  6. market_inefficiency.csv     â€” avg price spread (max-min) per market
+  7. arbitrage_signal.csv        â€” state deviation from national avg per day
 
 Usage:
     python src/analyze.py
@@ -27,7 +27,15 @@ from pyspark.sql import Window
 
 load_dotenv()
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# ── MSP Reference (2024-25, FCI declared values, Rs/quintal) ──────────────────
+# These can be used in a future query to flag modal_price < MSP as violations.
+# MSP_2024 = {
+#     'Paddy': 2300, 'Wheat': 2275, 'Jowar': 3371, 'Bajra': 2625,
+#     'Maize': 2090, 'Tur (Arhar)': 7550, 'Moong': 8682, 'Urad': 7400,
+#     'Cotton': 7121, 'Groundnut': 6783, 'Sunflower': 7280,
+# }
+
+# â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 SPARK_MASTER   = os.getenv("SPARK_MASTER", "local[*]")
 USE_HDFS       = os.getenv("USE_HDFS", "false").lower() == "true"
@@ -40,7 +48,7 @@ PROCESSED_HDFS  = f"{HDFS_NAMENODE}/user/agmarknet/processed"
 
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── Spark session ─────────────────────────────────────────────────────────────
+# â”€â”€ Spark session â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def build_spark(master: str) -> SparkSession:
     builder = (
@@ -56,22 +64,22 @@ def build_spark(master: str) -> SparkSession:
     return builder.getOrCreate()
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def save(df_spark, name: str, show: bool = True) -> pd.DataFrame:
-    """Collect Spark DataFrame → pandas, save CSV, print head."""
+    """Collect Spark DataFrame â†’ pandas, save CSV, print head."""
     pdf = df_spark.toPandas()
     path = RESULTS_DIR / f"{name}.csv"
     pdf.to_csv(path, index=False)
-    print(f"\n{'─'*60}")
-    print(f"  {name}  ({len(pdf)} rows) → {path}")
-    print(f"{'─'*60}")
+    print(f"\n{'â”€'*60}")
+    print(f"  {name}  ({len(pdf)} rows) â†’ {path}")
+    print(f"{'â”€'*60}")
     if show:
         print(pdf.to_string(index=False))
     return pdf
 
 
-# ── Queries ───────────────────────────────────────────────────────────────────
+# â”€â”€ Queries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def q1_top_commodities(spark) -> None:
     """Top 10 commodities by record count."""
@@ -92,7 +100,7 @@ def q1_top_commodities(spark) -> None:
 
 
 def q2_monthly_price_trend(spark) -> None:
-    """National monthly average modal price — last 12 months."""
+    """National monthly average modal price â€” last 12 months."""
     result = spark.sql("""
         SELECT
             year,
@@ -137,11 +145,11 @@ def q3_monthly_price_by_commodity(spark) -> None:
         ORDER BY commodity, year_month
     """)
     save(result, "monthly_price_by_commodity", show=False)
-    print(f"  (saved {len(result.toPandas())} rows — not printed for brevity)")
+    print(f"  (saved {len(result.toPandas())} rows â€” not printed for brevity)")
 
 
 def q4_top_states(spark) -> None:
-    """Top 5 states by estimated total trade value (modal_price × record count)."""
+    """Top 5 states by estimated total trade value (modal_price Ã— record count)."""
     result = spark.sql("""
         SELECT
             state,
@@ -235,7 +243,7 @@ def q7_arbitrage_signal(spark) -> None:
     save(arb, "arbitrage_signal")
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def parse_args():
     p = argparse.ArgumentParser(description="AGMARKNET Spark SQL analytics")
@@ -260,7 +268,7 @@ def main():
 
     if args.sample:
         df = df.sample(fraction=0.01, seed=42)
-        print("SAMPLE MODE — using 1% of data")
+        print("SAMPLE MODE â€” using 1% of data")
 
     df.createOrReplaceTempView("mandi_data")
 
@@ -297,3 +305,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

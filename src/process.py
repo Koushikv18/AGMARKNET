@@ -1,5 +1,5 @@
-﻿"""
-process.py â€” PySpark cleaning and processing job for AGMARKNET data.
+"""
+process.py — PySpark cleaning and processing job for AGMARKNET data.
 
 Reads raw CSVs (local or HDFS), applies a full cleaning pipeline,
 derives date columns, standardises text, and writes Parquet.
@@ -13,6 +13,7 @@ Usage:
 import argparse
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -24,7 +25,14 @@ from pyspark.sql.types import (
 
 load_dotenv()
 
-# â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Set up HADOOP_HOME on Windows if winutils is present
+if sys.platform == "win32" and "HADOOP_HOME" not in os.environ:
+    candidate = Path.home() / "hadoop"
+    if (candidate / "bin" / "winutils.exe").exists():
+        os.environ["HADOOP_HOME"] = str(candidate)
+        os.environ["PATH"] = str(candidate / "bin") + os.pathsep + os.environ.get("PATH", "")
+
+# ── Config ────────────────────────────────────────────────────────────────────
 
 SPARK_MASTER   = os.getenv("SPARK_MASTER", "local[*]")
 USE_HDFS       = os.getenv("USE_HDFS", "false").lower() == "true"
@@ -36,7 +44,7 @@ PROCESSED_LOCAL = str(Path(DATA_DIR) / "processed")
 RAW_HDFS        = f"{HDFS_NAMENODE}/user/agmarknet/raw"
 PROCESSED_HDFS  = f"{HDFS_NAMENODE}/user/agmarknet/processed"
 
-# â”€â”€ Schema â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Schema ────────────────────────────────────────────────────────────────────
 
 RAW_SCHEMA = StructType([
     StructField("state",        StringType(), True),
@@ -51,14 +59,17 @@ RAW_SCHEMA = StructType([
     StructField("modal_price",  DoubleType(), True),
 ])
 
-# â”€â”€ Spark session â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Spark session ─────────────────────────────────────────────────────────────
 
 def build_spark(master: str, app_name: str = "AGMARKNET-Process") -> SparkSession:
     builder = (
         SparkSession.builder
         .appName(app_name)
         .master(master)
-        .config("spark.sql.shuffle.partitions", "200"   # tune to 2x CPU cores for local, 2x executors for cluster)
+        .config("spark.driver.host", "localhost")
+        .config("spark.driver.bindAddress", "127.0.0.1")
+        # tune shuffle partitions: 2x CPU cores for local, 2x num-executors for cluster
+        .config("spark.sql.shuffle.partitions", "200")
         .config("spark.sql.parquet.compression.codec", "snappy")
         .config("spark.driver.memory", "4g")
         .config("spark.executor.memory", "4g")
@@ -68,7 +79,7 @@ def build_spark(master: str, app_name: str = "AGMARKNET-Process") -> SparkSessio
     return builder.getOrCreate()
 
 
-# â”€â”€ Cleaning pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Cleaning pipeline ─────────────────────────────────────────────────────────
 
 def clean(df):
     """Apply full cleaning pipeline; returns cleaned DataFrame."""
@@ -113,7 +124,8 @@ def clean(df):
         df = df.withColumn(col, F.initcap(F.trim(F.col(col))))
 
     # 7. Filter to plausible year range
-    df = df.filter((F.col("year") >= 2013) & (F.col("year") <= 2025))
+    current_year = datetime.now().year
+    df = df.filter((F.col("year") >= 2013) & (F.col("year") <= current_year + 1))
 
     total_clean = df.count()
     dropped = total_raw - total_clean
@@ -123,7 +135,7 @@ def clean(df):
     return df
 
 
-# â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 def parse_args():
     p = argparse.ArgumentParser(description="AGMARKNET PySpark processing job")
@@ -141,7 +153,7 @@ def main():
     spark = build_spark(master)
     spark.sparkContext.setLogLevel("WARN")
 
-    # â”€â”€ Read raw CSVs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Read raw CSVs ─────────────────────────────────────────────────────────
     raw_path = RAW_HDFS if USE_HDFS else RAW_LOCAL
     processed_path = PROCESSED_HDFS if USE_HDFS else PROCESSED_LOCAL
 
@@ -150,30 +162,31 @@ def main():
         spark.read
         .option("header", "true")
         .option("inferSchema", "false")    # use explicit schema
-        .option("mode", "PERMISSIVE")      # bad rows â†’ null, not error
+        .option("mode", "DROPMALFORMED")   # drop garbled rows rather than corrupting alignment
+        .option("recursiveFileLookup", "true")
         .schema(RAW_SCHEMA)
-        .csv(raw_path + "/**/*.csv")
+        .csv(raw_path)
     )
 
     if args.sample:
         df = df.limit(10_000)
-        print("SAMPLE MODE â€” limited to 10,000 rows")
+        print("SAMPLE MODE — limited to 10,000 rows")
 
-    # â”€â”€ Cache (small sample) or not (large data â€” Parquet handles this) â”€â”€â”€â”€â”€â”€â”€
+    # ── Cache (small sample) or not (large data — Parquet handles this) ────────
     if args.sample:
         df.cache()
 
-    # â”€â”€ Clean â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Clean ─────────────────────────────────────────────────────────────────
     df_clean = clean(df)
 
-    # â”€â”€ Print schema â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Print schema ──────────────────────────────────────────────────────────
     df_clean.printSchema()
 
-    # â”€â”€ Show sample rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Show sample rows ──────────────────────────────────────────────────────
     print("Sample cleaned rows:")
     df_clean.show(10, truncate=False)
 
-    # â”€â”€ Write Parquet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Write Parquet ─────────────────────────────────────────────────────────
     print(f"Writing Parquet to: {processed_path}")
     (
         df_clean
@@ -189,4 +202,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

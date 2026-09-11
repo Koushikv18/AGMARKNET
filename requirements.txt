@@ -1,4 +1,4 @@
-﻿# AGMARKNET Pipeline — Python Dependencies
+# AGMARKNET Pipeline — Python Dependencies
 # Pin versions for reproducibility on production cluster deployments.
 # Run: pip install -r requirements.txt
 
@@ -8,7 +8,7 @@ tqdm>=4.66.0              # Progress bars for paginated pulls
 python-dotenv>=1.0.0      # Load .env config
 
 # --- Big data processing ---
-pyspark>=3.5.0            # Apache Spark Python API
+pyspark>=3.5.0,<4.0.0   # Apache Spark Python API (3.5 compatible with Java 8/11/17)
 pyarrow>=14.0.0           # Parquet read/write backend
 
 # --- Analytics & data wrangling ---

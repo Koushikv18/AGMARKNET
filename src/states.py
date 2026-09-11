@@ -1,7 +1,7 @@
-﻿# Last updated: 2026-09-09
+# Last updated: 2026-09-09
 # Source: AGMARKNET API state filter values (verified against API responses)
 """
-states.py â€” Canonical list of Indian state/UT names as used by the
+states.py — Canonical list of Indian state/UT names as used by the
 AGMARKNET API on data.gov.in.
 
 These are used as the outer loop in acquire.py to partition downloads
@@ -47,4 +47,3 @@ STATES = [
     "Uttarakhand",
     "West Bengal",
 ]
-

@@ -1,5 +1,5 @@
-﻿#!/usr/bin/env bash
-# hdfs_ingest.sh â€” Upload locally acquired CSVs to HDFS raw layer.
+#!/usr/bin/env bash
+# hdfs_ingest.sh — Upload locally acquired CSVs to HDFS raw layer.
 #
 # Prerequisites:
 #   - hadoop CLI in PATH
@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-# â”€â”€ Load .env â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Load .env ─────────────────────────────────────────────────────────────────
 if [ -f ".env" ]; then
   export $(grep -v '^#' .env | xargs)
 fi
@@ -27,7 +27,7 @@ if [[ "${1:-}" == "--verify" ]]; then
   VERIFY=true
 fi
 
-# â”€â”€ Sanity checks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Sanity checks ─────────────────────────────────────────────────────────────
 if ! command -v hdfs &> /dev/null; then
   echo "ERROR: 'hdfs' command not found. Is Hadoop in your PATH?"
   echo "If running in local-only mode, set USE_HDFS=false in .env."
@@ -39,14 +39,14 @@ if [ ! -d "$LOCAL_RAW" ]; then
   exit 1
 fi
 
-# â”€â”€ Create HDFS directories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Create HDFS directories ───────────────────────────────────────────────────
 echo "[1/3] Creating HDFS directories..."
 hdfs dfs -mkdir -p "${HDFS_RAW}"
 hdfs dfs -mkdir -p "${HDFS_PROCESSED}"
 echo "      ${HDFS_RAW}"
 echo "      ${HDFS_PROCESSED}"
 
-# â”€â”€ Upload raw CSVs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Upload raw CSVs ───────────────────────────────────────────────────────────
 echo "[2/3] Uploading raw CSVs..."
 LOCAL_COUNT=$(find "$LOCAL_RAW" -name "*.csv" | wc -l)
 echo "      Found ${LOCAL_COUNT} CSV files in ${LOCAL_RAW}"
@@ -58,7 +58,7 @@ hdfs dfs -put -f "${LOCAL_RAW}/"* "${HDFS_RAW}/"
 
 echo "      Upload complete."
 
-# â”€â”€ List and optionally verify â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── List and optionally verify ────────────────────────────────────────────────
 echo "[3/3] Listing HDFS raw layer..."
 hdfs dfs -ls -R "${HDFS_RAW}" | tail -20
 HDFS_COUNT=$(hdfs dfs -ls -R "${HDFS_RAW}" | grep -c "\.csv" || true)
@@ -80,4 +80,3 @@ echo "  hdfs dfs -ls -R ${HDFS_RAW} | head -30   # browse files"
 echo "  hdfs dfs -du -h ${HDFS_RAW}               # total size"
 echo "  python src/process.py --sample             # smoke-test processing"
 echo "Next step: python src/process.py"
-

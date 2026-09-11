@@ -1,17 +1,16 @@
-﻿"""
-acquire.py â€” Paginated data acquisition from data.gov.in AGMARKNET API.
+"""
+acquire.py — Paginated data acquisition from data.gov.in AGMARKNET API.
 
 Usage:
-    python src/acquire.py               # last 2 years (default)
-    python src/acquire.py --full        # full history 2013-2025
+    python src/acquire.py               # all states
     python src/acquire.py --dry-run     # fetch 1 page, print schema, exit
-    python src/acquire.py --year 2023   # single year
     python src/acquire.py --state "Punjab"  # single state
 
 The script partitions output into:
-    data/raw/year=YYYY/state=<state>/<chunk_N>.csv
+    data/raw/state=<state>/<chunk_N>.csv
 
-It is fully resumable: already-completed partitions are skipped.
+Year and month are derived downstream during Spark processing (process.py).
+It is fully resumable: already-completed state partitions are skipped.
 Rate limiting: exponential back-off on HTTP 429 / 5xx responses.
 """
 
@@ -23,28 +22,26 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
 from tqdm import tqdm
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from states import STATES
 
-# â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Config ────────────────────────────────────────────────────────────────────
 
 load_dotenv()
 
-API_KEY   = os.getenv("API_KEY", "579b464db66ec23bdd000001cdd3946e44ce4aeb0897d604edf11be")
+API_KEY   = os.getenv("API_KEY", "579b464db66ec23bdd000001cdd3946e44ce4aad7209ff7b23ac571b")
 DATA_DIR  = Path(os.getenv("DATA_DIR", "data"))
 BASE_URL  = "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
-PAGE_SIZE = 10_000          # max records per API request (API hard limit is 100k, 10k safer for stability)
+PAGE_SIZE = int(os.getenv("PAGE_SIZE", "100"))  # safe page size for public demo key / rate limits
 MAX_RETRIES = 6
-BACKOFF_BASE = 2            # seconds â€” doubles on each retry
-
-FULL_YEAR_RANGE  = range(2013, 2026)
-DEFAULT_YEAR_RANGE = range(datetime.now().year - 1, datetime.now().year + 1)
+BACKOFF_BASE = 2            # seconds — doubles on each retry
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 
 FIELDS = [
     "state", "district", "market", "commodity", "variety",
@@ -59,41 +56,38 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def make_request(params: dict, retries: int = MAX_RETRIES) -> dict:
     """GET with exponential back-off on rate-limit / server errors."""
     for attempt in range(retries):
         try:
-            resp = requests.get(BASE_URL, params=params, timeout=30)
+            resp = requests.get(BASE_URL, params=params, headers=HEADERS, timeout=30)
             if resp.status_code == 200:
                 return resp.json()
             elif resp.status_code in (429, 500, 502, 503, 504):
                 wait = BACKOFF_BASE ** attempt
-                log.warning("HTTP %s â€” retrying in %ds (attempt %d/%d)",
+                log.warning("HTTP %s — retrying in %ds (attempt %d/%d)",
                             resp.status_code, wait, attempt + 1, retries)
                 time.sleep(wait)
             else:
-                log.error("HTTP %s â€” %s", resp.status_code, resp.text[:200])
+                log.error("HTTP %s — %s", resp.status_code, resp.text[:200])
                 resp.raise_for_status()
         except requests.RequestException as exc:
             wait = BACKOFF_BASE ** attempt
-            log.warning("Request error: %s â€” retrying in %ds", exc, wait)
+            log.warning("Request error: %s — retrying in %ds", exc, wait)
             time.sleep(wait)
     raise RuntimeError(f"Failed after {retries} retries for params={params}")
 
 
-def build_params(state: str, year: int, offset: int) -> dict:
-    """Construct API query params for a state/year page."""
+def build_params(state: str, offset: int) -> dict:
+    """Construct API query params for a state page (no arrival_date filter)."""
     return {
         "api-key": API_KEY,
         "format": "json",
         "limit": PAGE_SIZE,
         "offset": offset,
         "filters[state]": state,
-        # arrival_date format from API: dd/mm/yyyy
-        "filters[arrival_date][from]": f"01/01/{year}",
-        "filters[arrival_date][to]": f"31/12/{year}",
     }
 
 
@@ -103,35 +97,35 @@ def records_to_csv_bytes(records: list[dict]) -> bytes:
     writer = csv.DictWriter(buf, fieldnames=FIELDS, extrasaction="ignore")
     writer.writeheader()
     for rec in records:
-        # Normalise key names â€” API may return camelCase or snake_case variants
+        # Normalise key names — API may return camelCase or snake_case variants
         row = {f: rec.get(f, rec.get(f.replace("_", ""), "")) for f in FIELDS}
         writer.writerow(row)
     return buf.getvalue().encode("utf-8")
 
 
-def partition_done(year: int, state: str) -> bool:
-    """Return True if a completion sentinel file exists for this partition."""
-    sentinel = DATA_DIR / f"year={year}" / f"state={state}" / ".done"
+def partition_done(state: str) -> bool:
+    """Return True if a completion sentinel file exists for this state partition."""
+    sentinel = DATA_DIR / "raw" / f"state={state}" / ".done"
     return sentinel.exists()
 
 
-def mark_done(year: int, state: str) -> None:
-    sentinel = DATA_DIR / f"year={year}" / f"state={state}" / ".done"
+def mark_done(state: str) -> None:
+    sentinel = DATA_DIR / "raw" / f"state={state}" / ".done"
     sentinel.touch()
 
 
-# â”€â”€ Core acquisition logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Core acquisition logic ────────────────────────────────────────────────────
 
-def pull_partition(state: str, year: int, dry_run: bool = False) -> int:
+def pull_partition(state: str, dry_run: bool = False) -> int:
     """
-    Pull all records for a (state, year) partition.
+    Pull all records for a state partition.
     Returns total records written.
     """
-    out_dir = DATA_DIR / "raw" / f"year={year}" / f"state={state}"
+    out_dir = DATA_DIR / "raw" / f"state={state}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if partition_done(year, state) and not dry_run:
-        log.info("  SKIP  year=%d state=%s (already done)", year, state)
+    if partition_done(state) and not dry_run:
+        log.info("  SKIP  state=%s (already done)", state)
         return 0
 
     offset = 0
@@ -139,7 +133,7 @@ def pull_partition(state: str, year: int, dry_run: bool = False) -> int:
     total = 0
 
     while True:
-        params = build_params(state, year, offset)
+        params = build_params(state, offset)
         data = make_request(params)
 
         records = data.get("records", [])
@@ -150,9 +144,9 @@ def pull_partition(state: str, year: int, dry_run: bool = False) -> int:
 
         if dry_run:
             # Just print schema and first record, then exit
-            log.info("DRY RUN â€” fields in first record: %s",
+            log.info("DRY RUN — fields in first record: %s",
                      list(records[0].keys()))
-            log.info("DRY RUN â€” sample record: %s", json.dumps(records[0], indent=2))
+            log.info("DRY RUN — sample record: %s", json.dumps(records[0], indent=2))
             return count
 
         # Write chunk
@@ -172,19 +166,19 @@ def pull_partition(state: str, year: int, dry_run: bool = False) -> int:
         time.sleep(0.3)
 
     if not dry_run:
-        mark_done(year, state)
+        mark_done(state)
 
     return total
 
 
-# â”€â”€ CLI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── CLI ───────────────────────────────────────────────────────────────────────
 
 def parse_args():
     p = argparse.ArgumentParser(description="AGMARKNET data acquisition")
     p.add_argument("--full", action="store_true",
-                   help="Pull full history 2013-2025 (default: last 2 years)")
+                   help="Pull all states (default)")
     p.add_argument("--year", type=int, default=None,
-                   help="Pull a single year only")
+                   help="Legacy parameter (year filtering is performed in process.py)")
     p.add_argument("--state", default=None,
                    help="Pull a single state only")
     p.add_argument("--dry-run", action="store_true",
@@ -195,36 +189,29 @@ def parse_args():
 def main():
     args = parse_args()
 
-    if args.year:
-        years = [args.year]
-    elif args.full:
-        years = list(FULL_YEAR_RANGE)
-    else:
-        years = list(DEFAULT_YEAR_RANGE)
-
     states = [args.state] if args.state else STATES
 
     log.info("=" * 60)
     log.info("AGMARKNET Acquisition")
-    log.info("  Years  : %s â€“ %s", years[0], years[-1])
     log.info("  States : %d", len(states))
     log.info("  Output : %s", DATA_DIR / "raw")
+    if args.year:
+        log.info("  Note   : --year %d passed (date filtering is handled in process.py)", args.year)
     log.info("=" * 60)
 
     grand_total = 0
-    tasks = [(s, y) for y in years for s in states]
 
-    with tqdm(total=len(tasks), desc="Partitions", unit="part") as pbar:
-        for state, year in tasks:
-            pbar.set_postfix(state=state[:12], year=year)
+    with tqdm(total=len(states), desc="Partitions", unit="part") as pbar:
+        for state in states:
+            pbar.set_postfix(state=state[:12])
             try:
-                n = pull_partition(state, year, dry_run=args.dry_run)
+                n = pull_partition(state, dry_run=args.dry_run)
                 grand_total += n
                 if args.dry_run:
-                    log.info("Dry-run complete â€” exiting.")
+                    log.info("Dry-run complete — exiting.")
                     sys.exit(0)
             except Exception as exc:
-                log.error("FAILED  state=%s year=%d : %s", state, year, exc)
+                log.error("FAILED  state=%s : %s", state, exc)
             pbar.update(1)
 
     log.info("Done. Total records acquired: %s", f"{grand_total:,}")
@@ -232,4 +219,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

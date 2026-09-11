@@ -7,7 +7,7 @@ Also downloads an India GeoJSON for the choropleth if not already present.
 Outputs:
     output/price_trend.html         — line chart: national monthly price trend
     output/top_commodities.html     — bar chart: top 10 commodities by volume
-    output/top_states.html          — bar chart: top 5 states by trade value
+    output/top_states.html          — bar chart: top 5 states by price index sum
     output/volatility.html          — horizontal bar: price volatility
     output/market_inefficiency.html — scatter: market spread vs avg price
     output/arbitrage.html           — heatmap: state deviation by commodity
@@ -56,6 +56,18 @@ TEXT_COLOR = "#E6EDF3"
 COLOR_SEQ  = px.colors.qualitative.Bold
 COLOR_CONT = "Teal"
 
+# Mapping for known AGMARKNET vs GeoJSON name mismatches
+STATE_GEOJSON_RENAME_MAP = {
+    "Odisha": "Orissa",
+    "Uttarakhand": "Uttaranchal",
+    "Puducherry": "Pondicherry",
+    "Delhi": "NCT of Delhi",
+    "Andaman and Nicobar": "Andaman & Nicobar Island",
+    "Dadra and Nagar Haveli": "Dadra & Nagar Haveli",
+    "Daman and Diu": "Daman & Diu",
+    "Jammu and Kashmir": "Jammu & Kashmir",
+}
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def load(name: str) -> pd.DataFrame | None:
@@ -71,7 +83,7 @@ def load(name: str) -> pd.DataFrame | None:
 def save_fig(fig: go.Figure, name: str) -> None:
     path = OUTPUT_DIR / f"{name}.html"
     pio.write_html(fig, str(path), full_html=True, include_plotlyjs="cdn")
-    print(f"       → {path}")
+    print(f"       -> {path}")
 
 
 def apply_style(fig: go.Figure, title: str, subtitle: str = "") -> go.Figure:
@@ -153,26 +165,37 @@ def chart_top_commodities() -> None:
     save_fig(fig, "top_commodities")
 
 
-# ── Chart 3: Top 5 states by trade value ─────────────────────────────────────
+# ── Chart 3: Top 5 states by price index sum ─────────────────────────────────
 
 def chart_top_states() -> None:
-    print("\n[3] Top 5 states by trade value")
+    print("\n[3] Top 5 states by price index sum")
     df = load("top_states")
     if df is None:
         return
 
+    # Backwards compatibility: handle price_index_sum or total_price_sum
+    metric_col = "price_index_sum" if "price_index_sum" in df.columns else "total_price_sum"
+
     fig = make_subplots(
         rows=1, cols=2,
-        subplot_titles=["Total Price Sum (proxy for trade value)", "Markets & Commodities"],
+        subplot_titles=["Price Index Sum (Activity Proxy)", "Markets & Commodities"],
     )
+
+    def format_val(v):
+        if v >= 1e9:
+            return f"₹{v/1e9:.1f}B"
+        elif v >= 1e6:
+            return f"₹{v/1e6:.1f}M"
+        return f"₹{v:,.0f}"
 
     fig.add_trace(
         go.Bar(
-            x=df["state"], y=df["total_price_sum"],
+            x=df["state"], y=df[metric_col],
             marker_color=PRIMARY,
-            text=df["total_price_sum"].apply(lambda v: f"₹{v/1e9:.1f}B"),
+            text=df[metric_col].apply(format_val),
             textposition="outside",
-            name="Trade Value",
+            name="Price Index Sum",
+            hovertemplate="State: %{x}<br>Price Index Sum: ₹%{y:,.0f}<br><i>Note: Activity proxy (dataset lacks arrival quantities)</i><extra></extra>",
         ),
         row=1, col=1,
     )
@@ -194,10 +217,12 @@ def chart_top_states() -> None:
         row=1, col=2,
     )
 
+    # Note: AGMARKNET has no arrivals/quantity field, so true trade value cannot be computed;
+    # price_index_sum serves as an activity proxy.
     fig = apply_style(
         fig,
-        "Top 5 States by Trade Activity",
-        "Trade value = sum of modal prices across all records · AGMARKNET"
+        "Top 5 States by Trading Activity",
+        "Price index sum = sum of modal prices across records (activity proxy; dataset lacks quantities) · AGMARKNET"
     )
     fig.update_layout(barmode="group")
     save_fig(fig, "top_states")
@@ -312,15 +337,15 @@ def chart_arbitrage() -> None:
 def download_geojson() -> dict | None:
     """Download India states GeoJSON (once), return parsed dict."""
     if GEOJSON_PATH.exists():
-        with open(GEOJSON_PATH) as f:
+        with open(GEOJSON_PATH, encoding="utf-8") as f:
             return json.load(f)
     print(f"  Downloading India GeoJSON from {GEOJSON_URL} ...")
     try:
-        resp = requests.get(GEOJSON_URL, timeout=30)
+        resp = requests.get(GEOJSON_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
         resp.raise_for_status()
         geojson = resp.json()
         GEOJSON_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(GEOJSON_PATH, "w") as f:
+        with open(GEOJSON_PATH, "w", encoding="utf-8") as f:
             json.dump(geojson, f)
         print("  GeoJSON downloaded and cached.")
         return geojson
@@ -336,26 +361,51 @@ def chart_choropleth() -> None:
     if geojson is None:
         return
 
-    df_states = load("top_states")
+    # Use all_states_summary.csv for full state coverage, fallback to top_states.csv
+    df_states = load("all_states_summary")
+    if df_states is None:
+        print("  all_states_summary.csv not found, falling back to top_states.csv")
+        df_states = load("top_states")
     if df_states is None:
         return
 
-    # Try to identify the feature property that holds state names
+    # Identify the feature property holding state names (prefer NAME_1, ST_NM, st_nm, state)
     sample_props = geojson["features"][0]["properties"] if geojson.get("features") else {}
-    name_key = next(
-        (k for k in sample_props if "name" in k.lower() or "state" in k.lower()),
-        list(sample_props.keys())[0] if sample_props else "NAME_1"
-    )
+    candidates = ["NAME_1", "ST_NM", "st_nm", "state_name", "STATE_NAME", "State", "state"]
+    name_key = next((k for k in candidates if k in sample_props), None)
+    if not name_key:
+        name_key = next(
+            (k for k in sample_props if ("name" in k.lower() and k.lower() != "name_0") or "state" in k.lower()),
+            list(sample_props.keys())[0] if sample_props else "NAME_1"
+        )
 
-    # Build a fuller state-level dataset by merging volatility info
-    df_vol = load("price_volatility")
-    if df_vol is None:
-        print("  Skipping choropleth — price_volatility.csv not found.")
-        return
+    df_map = df_states.copy()
 
-    # Use top_states for state-level avg_modal_price
-    # We need a state → avg_modal_price mapping; use top_states as proxy
-    df_map = df_states[["state", "avg_modal_price", "total_price_sum"]].copy()
+    # Check which names need renaming based on geojson properties
+    geojson_names = {
+        str(feat["properties"].get(name_key)).strip()
+        for feat in geojson.get("features", [])
+        if feat.get("properties") and feat["properties"].get(name_key)
+    }
+
+    # Apply renames only if the mapped name exists in geojson or original doesn't
+    rename_dict = {}
+    for orig, mapped in STATE_GEOJSON_RENAME_MAP.items():
+        if orig not in geojson_names and mapped in geojson_names:
+            rename_dict[orig] = mapped
+        elif orig not in geojson_names:
+            rename_dict[orig] = mapped
+
+    df_map["state"] = df_map["state"].replace(rename_dict)
+
+    unmatched = [s for s in df_map["state"] if s not in geojson_names]
+    if unmatched:
+        print(f"  [NOTE] State values with no match in GeoJSON ('{name_key}'): {unmatched}")
+    else:
+        print(f"  [OK]   All {len(df_map)} states matched with GeoJSON regions.")
+
+    # Metric column: price_index_sum or total_price_sum
+    metric_col = "price_index_sum" if "price_index_sum" in df_map.columns else "total_price_sum"
 
     fig = px.choropleth(
         df_map,
@@ -364,7 +414,13 @@ def chart_choropleth() -> None:
         color="avg_modal_price",
         featureidkey=f"properties.{name_key}",
         color_continuous_scale="YlOrRd",
-        labels={"avg_modal_price": "Avg Modal Price (₹/quintal)"},
+        hover_name="state",
+        hover_data={"state": False, "avg_modal_price": ":.2f", metric_col: ":,.0f", "record_count": ":,"},
+        labels={
+            "avg_modal_price": "Avg Modal Price (₹/quintal)",
+            metric_col: "Price Index Sum (₹)",
+            "record_count": "Records",
+        },
         scope="asia",
     )
     fig.update_geos(
@@ -378,7 +434,7 @@ def chart_choropleth() -> None:
     fig = apply_style(
         fig,
         "India State-Level Average Modal Prices",
-        "Top-5 states shown · AGMARKNET full-history data"
+        "Full state-level coverage · AGMARKNET data"
     )
     fig.update_layout(
         paper_bgcolor=BG_DARK,

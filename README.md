@@ -1,8 +1,8 @@
-﻿# AGMARKNET — Full-Scale Big Data Pipeline
+# AGMARKNET — Full-Scale Big Data Pipeline
 
-> **Ministry of Agriculture & Farmers Welfare, Govt. of India**
-> Resource ID: `9ef84268-d588-465a-a308-a864a43d0070`
-> Coverage: ~7,000 mandis · ~300 commodities · daily records since 2013
+> **Ministry of Agriculture & Farmers Welfare, Govt. of India**  
+> Resource ID: `9ef84268-d588-465a-a308-a864a43d0070`  
+> Coverage: ~7,000 mandis · ~300 commodities · daily records since 2013  
 
 ## Why This Project Matters
 
@@ -14,24 +14,27 @@ This pipeline pulls the **full history** across all commodities and states — t
 - Price-shock analysis — drought, festival, and seasonal spikes
 - Arbitrage/exploitation signals — states where the same commodity trades far above the national average on the same day
 
+> [!NOTE]
+> The public demo API key (`579b464db66ec23bdd000001cdd3946e44ce4aad7209ff7b23ac571b`) provided by data.gov.in is heavily rate-limited (~100 req/hr). A free registered personal API key from [data.gov.in](https://data.gov.in/user/register) is required for full historical pulls.
+
 ## Architecture
 
 ```
 data.gov.in API
-      |  (paginated, partitioned by year + state)
+      |  (paginated REST API, partitioned by state)
       v
- data/raw/year=YYYY/state=*/  <-- CSV chunks
+ data/raw/state=*/  <-- CSV chunks
       |
       v  hdfs_ingest.sh
  HDFS /user/agmarknet/raw/
       |
-      v  process.py  (PySpark)
- HDFS /user/agmarknet/processed/  <-- Parquet, partitioned year/state
+      v  process.py  (PySpark cleaning + date derivation)
+ HDFS /user/agmarknet/processed/  <-- Parquet, partitioned by year/state
       |
-      v  analyze.py  (Spark SQL)
+      v  analyze.py  (Spark SQL analytics)
  results/*.csv
       |
-      v  visualize.py  (Plotly)
+      v  visualize.py  (Plotly interactive charts)
  output/*.html
       |
       v
@@ -53,11 +56,14 @@ cp .env.example .env
 
 ### 3. Acquire data
 ```bash
-# Default: pulls last 2 years (fast, for testing)
-python src/acquire.py
+# Test connection with dry-run
+python src/acquire.py --dry-run --state "Punjab"
 
-# Full history 2013-2025 (hours, multi-GB)
-python src/acquire.py --full
+# Pull data for a specific state
+python src/acquire.py --state "Punjab"
+
+# Full pull across all states
+python src/acquire.py
 ```
 
 ### 4. Ingest into HDFS (optional)
@@ -67,13 +73,19 @@ bash scripts/hdfs_ingest.sh
 
 ### 5. Process with PySpark
 ```bash
-python src/process.py
 # Quick smoke-test on 10k rows
 python src/process.py --sample
+
+# Full cleaning job
+python src/process.py
 ```
 
 ### 6. Run analytics
 ```bash
+# Smoke test on 1% sample
+python src/analyze.py --sample
+
+# Full Spark SQL analytics
 python src/analyze.py
 ```
 
@@ -102,15 +114,18 @@ start dashboard/index.html
 | max_price    | float  | Maximum price (Rs/quintal)               |
 | modal_price  | float  | Most common transaction price            |
 
+> [!IMPORTANT]
+> **Dataset Limitation**: AGMARKNET provides price data without transaction quantity/arrival volumes. Therefore, true monetary trade value cannot be calculated from this dataset alone. The `price_index_sum` metric serves as a trading activity proxy.
+
 ## License
 
-Data: Open Government Data (OGD) Platform India — data.gov.in
-Code: MIT
+Data: Open Government Data (OGD) Platform India — data.gov.in  
+Code: MIT  
 
 ## Badges
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python)
-![PySpark](https://img.shields.io/badge/PySpark-3.5-orange?logo=apache-spark)
+![PySpark](https://img.shields.io/badge/PySpark-3.5%2B-orange?logo=apache-spark)
 ![Plotly](https://img.shields.io/badge/Plotly-5.18-purple?logo=plotly)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Data](https://img.shields.io/badge/Data-data.gov.in-blue)

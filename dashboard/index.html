@@ -535,7 +535,7 @@
               </tr>
               <tr>
                 <td>4</td>
-                <td>Top 5 states by total trade value</td>
+                <td>Top 5 states by price index sum</td>
                 <td><code>results/top_states.csv</code></td>
                 <td>Bar chart</td>
                 <td>Agricultural economy</td>
@@ -738,7 +738,7 @@
         </div>
         <div class="chart-card-desc">
           State colour intensity reflects average modal price across all commodities.
-          Generated from <code>results/top_states.csv</code> + <code>data/india_states.geojson</code>
+          Generated from <code>results/all_states_summary.csv</code> + <code>data/india_states.geojson</code>
         </div>
         <div class="chart-iframe-wrap">
           <iframe id="iframe-choropleth" src="output/choropleth.html" loading="lazy"
@@ -748,15 +748,15 @@
 
       <div class="chart-card">
         <div class="chart-card-header">
-          <div class="chart-card-title">Top 5 States by Trade Activity</div>
-          <span class="chart-card-tag tag-blue">Markets &amp; Trade Value</span>
+          <div class="chart-card-title">Top 5 States by Trading Activity</div>
+          <span class="chart-card-tag tag-blue">Markets &amp; Price Index</span>
         </div>
         <div class="chart-card-desc">
-          Total price sum (proxy for trade value) · unique markets · unique commodities
+          Price index sum (proxy for activity; AGMARKNET lacks arrival volume) · unique markets · unique commodities
         </div>
         <div class="chart-iframe-wrap">
           <iframe id="iframe-top-states" src="output/top_states.html" loading="lazy"
-                  title="Top 5 states by trade value" onerror="showFallback(this)"></iframe>
+                  title="Top 5 states by price index sum" onerror="showFallback(this)"></iframe>
         </div>
       </div>
 

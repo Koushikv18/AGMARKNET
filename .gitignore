@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
@@ -16,6 +16,7 @@ build/
 # Data & outputs (large files — don't commit raw data)
 data/raw/
 data/processed/
+data/*.geojson
 results/
 output/
 

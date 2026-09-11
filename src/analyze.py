@@ -1,14 +1,15 @@
-﻿"""
-analyze.py â€” Spark SQL analytics on the cleaned AGMARKNET Parquet dataset.
+"""
+analyze.py — Spark SQL analytics on the cleaned AGMARKNET Parquet dataset.
 
-Produces 7 result CSV files in results/:
-  1. top_commodities.csv         â€” top 10 by record count
-  2. monthly_price_trend.csv     â€” national monthly avg modal price (last 12 m)
-  3. monthly_price_by_commodity.csv â€” monthly avg per top-10 commodity
-  4. top_states.csv              â€” top 5 states by total estimated trade value
-  5. price_volatility.csv        â€” stddev of modal price per commodity
-  6. market_inefficiency.csv     â€” avg price spread (max-min) per market
-  7. arbitrage_signal.csv        â€” state deviation from national avg per day
+Produces 8 result CSV files in results/:
+  1. top_commodities.csv         — top 10 by record count
+  2. monthly_price_trend.csv     — national monthly avg modal price (last 12 m, data-relative)
+  3. monthly_price_by_commodity.csv — monthly avg per top-10 commodity (last 12 m, data-relative)
+  4. top_states.csv              — top 5 states by price index sum
+  5. price_volatility.csv        — stddev of modal price per commodity
+  6. market_inefficiency.csv     — avg price spread (max-min) per market
+  7. arbitrage_signal.csv        — state deviation from national avg per day
+  8. all_states_summary.csv      — all states summary for choropleth mapping
 
 Usage:
     python src/analyze.py
@@ -17,6 +18,7 @@ Usage:
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -27,6 +29,13 @@ from pyspark.sql import Window
 
 load_dotenv()
 
+# Set up HADOOP_HOME on Windows if winutils is present
+if sys.platform == "win32" and "HADOOP_HOME" not in os.environ:
+    candidate = Path.home() / "hadoop"
+    if (candidate / "bin" / "winutils.exe").exists():
+        os.environ["HADOOP_HOME"] = str(candidate)
+        os.environ["PATH"] = str(candidate / "bin") + os.pathsep + os.environ.get("PATH", "")
+
 # ── MSP Reference (2024-25, FCI declared values, Rs/quintal) ──────────────────
 # These can be used in a future query to flag modal_price < MSP as violations.
 # MSP_2024 = {
@@ -35,7 +44,7 @@ load_dotenv()
 #     'Cotton': 7121, 'Groundnut': 6783, 'Sunflower': 7280,
 # }
 
-# â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Config ────────────────────────────────────────────────────────────────────
 
 SPARK_MASTER   = os.getenv("SPARK_MASTER", "local[*]")
 USE_HDFS       = os.getenv("USE_HDFS", "false").lower() == "true"
@@ -48,13 +57,15 @@ PROCESSED_HDFS  = f"{HDFS_NAMENODE}/user/agmarknet/processed"
 
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# â”€â”€ Spark session â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Spark session ─────────────────────────────────────────────────────────────
 
 def build_spark(master: str) -> SparkSession:
     builder = (
         SparkSession.builder
         .appName("AGMARKNET-Analyze")
         .master(master)
+        .config("spark.driver.host", "localhost")
+        .config("spark.driver.bindAddress", "127.0.0.1")
         .config("spark.sql.shuffle.partitions", "200")
         .config("spark.driver.memory", "4g")
         .config("spark.executor.memory", "4g")
@@ -64,22 +75,22 @@ def build_spark(master: str) -> SparkSession:
     return builder.getOrCreate()
 
 
-# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def save(df_spark, name: str, show: bool = True) -> pd.DataFrame:
-    """Collect Spark DataFrame â†’ pandas, save CSV, print head."""
+    """Collect Spark DataFrame -> pandas, save CSV, print head."""
     pdf = df_spark.toPandas()
     path = RESULTS_DIR / f"{name}.csv"
     pdf.to_csv(path, index=False)
-    print(f"\n{'â”€'*60}")
-    print(f"  {name}  ({len(pdf)} rows) â†’ {path}")
-    print(f"{'â”€'*60}")
+    print(f"\n{'-'*60}")
+    print(f"  {name}  ({len(pdf)} rows) -> {path}")
+    print(f"{'-'*60}")
     if show:
         print(pdf.to_string(index=False))
     return pdf
 
 
-# â”€â”€ Queries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Queries ───────────────────────────────────────────────────────────────────
 
 def q1_top_commodities(spark) -> None:
     """Top 10 commodities by record count."""
@@ -100,7 +111,7 @@ def q1_top_commodities(spark) -> None:
 
 
 def q2_monthly_price_trend(spark) -> None:
-    """National monthly average modal price â€” last 12 months."""
+    """National monthly average modal price — data-relative last 12 months."""
     result = spark.sql("""
         SELECT
             year,
@@ -109,7 +120,7 @@ def q2_monthly_price_trend(spark) -> None:
             ROUND(AVG(modal_price), 2)            AS avg_modal_price,
             COUNT(*)                               AS record_count
         FROM mandi_data
-        WHERE arrival_date >= ADD_MONTHS(CURRENT_DATE(), -12)
+        WHERE arrival_date >= (SELECT ADD_MONTHS(MAX(arrival_date), -12) FROM mandi_data)
         GROUP BY year, month, DATE_FORMAT(arrival_date, 'yyyy-MM')
         ORDER BY year_month
     """)
@@ -117,9 +128,9 @@ def q2_monthly_price_trend(spark) -> None:
 
 
 def q3_monthly_price_by_commodity(spark) -> None:
-    """Monthly avg modal price for the top-10 commodities (last 12 months)."""
+    """Monthly avg modal price for the top-10 commodities (data-relative last 12 months)."""
     # Build top-10 commodity list dynamically
-    top10 = spark.sql("""
+    top10_df = spark.sql("""
         SELECT commodity FROM (
             SELECT commodity, COUNT(*) AS cnt
             FROM mandi_data
@@ -128,7 +139,12 @@ def q3_monthly_price_by_commodity(spark) -> None:
             ORDER BY cnt DESC
             LIMIT 10
         )
-    """).toPandas()["commodity"].tolist()
+    """).toPandas()
+
+    top10 = top10_df["commodity"].tolist() if not top10_df.empty else []
+    if not top10:
+        print("  [SKIP] No commodities found for q3.")
+        return
 
     top10_quoted = ", ".join(f"'{c}'" for c in top10)
 
@@ -139,29 +155,31 @@ def q3_monthly_price_by_commodity(spark) -> None:
             ROUND(AVG(modal_price), 2)            AS avg_modal_price,
             COUNT(*)                               AS record_count
         FROM mandi_data
-        WHERE arrival_date >= ADD_MONTHS(CURRENT_DATE(), -12)
+        WHERE arrival_date >= (SELECT ADD_MONTHS(MAX(arrival_date), -12) FROM mandi_data)
           AND commodity IN ({top10_quoted})
         GROUP BY commodity, DATE_FORMAT(arrival_date, 'yyyy-MM')
         ORDER BY commodity, year_month
     """)
     save(result, "monthly_price_by_commodity", show=False)
-    print(f"  (saved {len(result.toPandas())} rows â€” not printed for brevity)")
+    print(f"  (saved {len(result.toPandas())} rows -- not printed for brevity)")
 
 
 def q4_top_states(spark) -> None:
-    """Top 5 states by estimated total trade value (modal_price Ã— record count)."""
+    """Top 5 states by estimated price index sum (activity proxy)."""
+    # Stated limitation: AGMARKNET provides prices without arrivals/quantity volumes,
+    # so true trade value cannot be computed; price_index_sum serves as an activity proxy.
     result = spark.sql("""
         SELECT
             state,
             COUNT(*)                                AS record_count,
             ROUND(AVG(modal_price), 2)              AS avg_modal_price,
-            ROUND(SUM(modal_price), 0)              AS total_price_sum,
+            ROUND(SUM(modal_price), 0)              AS price_index_sum,
             COUNT(DISTINCT market)                  AS unique_markets,
             COUNT(DISTINCT commodity)               AS unique_commodities
         FROM mandi_data
         WHERE state IS NOT NULL
         GROUP BY state
-        ORDER BY total_price_sum DESC
+        ORDER BY price_index_sum DESC
         LIMIT 5
     """)
     save(result, "top_states")
@@ -174,15 +192,15 @@ def q5_price_volatility(spark) -> None:
             commodity,
             COUNT(*)                                        AS record_count,
             ROUND(AVG(modal_price), 2)                      AS avg_modal_price,
-            ROUND(STDDEV(modal_price), 2)                   AS stddev_modal_price,
-            ROUND(STDDEV(modal_price) / AVG(modal_price) * 100, 2) AS coeff_variation_pct,
+            ROUND(COALESCE(STDDEV(modal_price), 0.0), 2)    AS stddev_modal_price,
+            ROUND(COALESCE(STDDEV(modal_price) / AVG(modal_price) * 100, 0.0), 2) AS coeff_variation_pct,
             ROUND(MIN(modal_price), 2)                      AS min_price_ever,
             ROUND(MAX(modal_price), 2)                      AS max_price_ever
         FROM mandi_data
         WHERE commodity IS NOT NULL
           AND modal_price > 0
         GROUP BY commodity
-        HAVING COUNT(*) > 100
+        HAVING COUNT(*) >= 1
         ORDER BY stddev_modal_price DESC
         LIMIT 20
     """)
@@ -202,7 +220,7 @@ def q6_market_inefficiency(spark) -> None:
         FROM mandi_data
         WHERE min_price > 0 AND max_price > 0 AND modal_price > 0
         GROUP BY state, market
-        HAVING COUNT(*) > 50
+        HAVING COUNT(*) >= 1
         ORDER BY avg_spread_pct DESC
         LIMIT 20
     """)
@@ -213,7 +231,7 @@ def q7_arbitrage_signal(spark) -> None:
     """
     Arbitrage / exploitation signal:
     For each commodity + date, compute each state's deviation from
-    the national average modal price.  States with consistently high
+    the national average modal price. States with consistently high
     positive deviation may indicate price gouging or supply bottlenecks.
     """
     # Window for national average per commodity per date
@@ -236,14 +254,34 @@ def q7_arbitrage_signal(spark) -> None:
             F.round(F.avg("deviation_pct"), 2).alias("avg_deviation_pct"),
             F.round(F.max("deviation_pct"), 2).alias("max_deviation_pct"),
         )
-        .filter(F.col("record_count") > 50)
+        .filter(F.col("record_count") >= 1)
         .orderBy(F.desc("avg_deviation_pct"))
         .limit(30)
     )
     save(arb, "arbitrage_signal")
 
 
-# â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+def q8_all_states_summary(spark) -> None:
+    """All states summary (full state-level aggregation for choropleth mapping)."""
+    # Stated limitation: AGMARKNET provides prices without arrivals/quantity volumes,
+    # so true trade value cannot be computed; price_index_sum serves as an activity proxy.
+    result = spark.sql("""
+        SELECT
+            state,
+            COUNT(*)                                AS record_count,
+            ROUND(AVG(modal_price), 2)              AS avg_modal_price,
+            ROUND(SUM(modal_price), 0)              AS price_index_sum,
+            COUNT(DISTINCT market)                  AS unique_markets,
+            COUNT(DISTINCT commodity)               AS unique_commodities
+        FROM mandi_data
+        WHERE state IS NOT NULL
+        GROUP BY state
+        ORDER BY price_index_sum DESC
+    """)
+    save(result, "all_states_summary")
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 def parse_args():
     p = argparse.ArgumentParser(description="AGMARKNET Spark SQL analytics")
@@ -267,8 +305,10 @@ def main():
     df = spark.read.parquet(processed_path)
 
     if args.sample:
-        df = df.sample(fraction=0.01, seed=42)
-        print("SAMPLE MODE â€” using 1% of data")
+        total = df.count()
+        if total > 10_000:
+            df = df.sample(fraction=0.01, seed=42)
+        print("SAMPLE MODE — running on sample data")
 
     df.createOrReplaceTempView("mandi_data")
 
@@ -281,13 +321,13 @@ def main():
     print("\n\n[Q1] Top 10 commodities by record count")
     q1_top_commodities(spark)
 
-    print("\n[Q2] National monthly price trend (last 12 months)")
+    print("\n[Q2] National monthly price trend (last 12 months, data-relative)")
     q2_monthly_price_trend(spark)
 
-    print("\n[Q3] Monthly price by top commodity")
+    print("\n[Q3] Monthly price by top commodity (last 12 months, data-relative)")
     q3_monthly_price_by_commodity(spark)
 
-    print("\n[Q4] Top 5 states by trade value")
+    print("\n[Q4] Top 5 states by price index sum")
     q4_top_states(spark)
 
     print("\n[Q5] Price volatility per commodity")
@@ -299,10 +339,12 @@ def main():
     print("\n[Q7] Arbitrage / exploitation signal")
     q7_arbitrage_signal(spark)
 
+    print("\n[Q8] All-states summary for choropleth mapping")
+    q8_all_states_summary(spark)
+
     print("\n\nAll analytics complete. Results saved to:", RESULTS_DIR)
     spark.stop()
 
 
 if __name__ == "__main__":
     main()
-
